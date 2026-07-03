@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>One Date Down... 49 More? 👀</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Patrick+Hand&family=Nunito:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="Style.css">
+</head>
+<body>
+
+<!-- Ambient sounds. Drop matching files in assets/audio/ -->
+<audio id="birdAudio" preload="none">
+  <source src="assets/audio/Relaxing Bird Sounds for Sleep, Focus & Calm _ Morning Birds Singing with No Music.mp3" type="audio/mpeg">
+</audio>
+<audio id="celebrationAudio" preload="none">
+  <source src="assets/audio/Celebration Sound Effect.mp3" type="audio/mpeg">
+</audio>
+<audio id="drumrollAudio" preload="none">
+  <source src="assets/audio/Drum Roll (Ending Celebration) - Sound Effect _ ProSounds.mp3" type="audio/mpeg">
+</audio>
+
+<canvas id="confettiCanvas"></canvas>
+
+<!-- ============ SCREEN 1: OPENING ============ -->
+<section id="screen-opening" class="screen active dark-screen">
+  <div class="forest-vignette"></div>
+  <div class="typewriter-wrap">
+    <p id="typewriterLine1" class="typewriter-line"></p>
+    <p id="typewriterLine2" class="typewriter-line"></p>
+  </div>
+  <div class="sticker-track">
+    <div id="sticker1" class="walking-sticker">🦫<span class="basket">🧺</span></div>
+  </div>
+  <button id="btnTellMeMore" class="btn btn-primary reveal-btn">✨ Tell me more</button>
+</section>
+
+<!-- ============ SCREEN 2: POLAROID ============ -->
+<section id="screen-second" class="screen paper-bg">
+  <div class="polaroid-stage">
+    <div class="polaroid drop-in">
+      <div class="polaroid-photo">
+        <img src="assets/images/chat.png" alt="Karura Forest" onerror="this.parentElement.classList.add('img-fallback')">
+        <span class="fallback-emoji">🌳📸</span>
+      </div>
+      <p class="polaroid-caption">Karura, that one time</p>
+    </div>
+  </div>
+  <p class="hand-text line1">One date isn't enough evidence.</p>
+  <p class="hand-text line2">I think we need more research.</p>
+  <button id="btnExperiment" class="btn btn-primary">🧪 Begin Experiment #2</button>
+</section>
+
+<!-- ============ SCREEN 3: YES/NO GAME ============ -->
+<section id="screen-yesno" class="screen paper-bg">
+  <div class="sticker-bubble-wrap">
+    <div id="sticker2" class="sticker-static">🦫</div>
+    <div class="speech-bubble">Important question...</div>
+  </div>
+  <h2 class="question-text">Would you be interested in going on more adventures with me?</h2>
+  <div id="yesnoArena" class="yesno-arena">
+    <button id="btnNo" class="btn btn-no">❌ No</button>
+    <button id="btnYes" class="btn btn-yes">✅ Absolutely</button>
+  </div>
+</section>
+
+<!-- ============ SCREEN 4: WELCOME / TREASURE MAP + GRID ============ -->
+<section id="screen-welcome" class="screen map-bg">
+  <header class="map-header">
+    <h1 class="map-title">🎁 50 Adventures</h1>
+    <p class="map-subtitle">Tap a spot on the map or view the full list</p>
+    <div class="map-actions">
+      <button id="btnToggleLayout" class="btn btn-secondary">📋 View All List</button>
+      <button id="btnOpenGallery" class="btn btn-secondary">📌 Memory Wall</button>
+      <button id="btnOpenFinal" class="btn btn-secondary">🎲 Pick Next Adventure</button>
+    </div>
+  </header>
+
+  <div id="mapScroll" class="map-scroll">
+    <svg id="mapPath" class="map-path-svg"></svg>
+    <div id="mapPins" class="map-pins"></div>
+  </div>
+
+  <div id="adventuresGridView" class="adventures-grid-view hidden">
+    <div id="gridEntries" class="grid-entries"></div>
+  </div>
+</section>
+
+<!-- ============ DATE CARD MODAL ============ -->
+<div id="cardModal" class="modal-overlay">
+  <div class="modal-backdrop"></div>
+  <div id="flipCard" class="flip-card">
+    <div class="flip-card-inner">
+      <div class="flip-card-front">
+        <span id="cardFrontEmoji" class="card-emoji"></span>
+        <p id="cardFrontLabel" class="card-front-label"></p>
+        <p class="tap-hint">tap to flip</p>
+      </div>
+      <div class="flip-card-back">
+        <span id="cardBackEmoji" class="card-emoji-small"></span>
+        <h3 id="cardBackTitle"></h3>
+        <p class="card-status" id="cardBackStatus"></p>
+        <div class="card-polaroid">
+          <img id="cardBackPhoto" src="" alt="memory">
+          <span class="fallback-emoji small">💛</span>
+        </div>
+        <label for="cardPhotoInput" class="card-upload-label">📸 Add a memory photo</label>
+        <input type="file" id="cardPhotoInput" accept="image/*" class="visually-hidden-input">
+        <p class="card-memory" id="cardBackMemory"></p>
+        <div class="card-meta">
+          <span id="cardBackTime"></span>
+        </div>
+        <button id="cardLikeBtn" class="btn btn-primary small">I like this idea</button>
+      </div>
+    </div>
+    <button id="cardCloseBtn" class="modal-close">✕</button>
+  </div>
+</div>
+
+<!-- ============ SCREEN 5: GALLERY WALL ============ -->
+<section id="screen-gallery" class="screen wall-bg">
+  <button id="btnCloseGallery" class="modal-close light">✕</button>
+  <h2 class="wall-title">The Wall</h2>
+
+  <div class="gallery-upload-container">
+    <h4>Pin a new memory</h4>
+    <div class="upload-row">
+      <input type="file" id="phonePhotoUpload" accept="image/*" class="upload-file-picker">
+      <input type="text" id="uploadCaption" placeholder="Write a short memory caption..." class="upload-caption-input">
+    </div>
+    <button id="btnSubmitUpload" class="btn btn-primary small">Upload</button>
+  </div>
+
+  <div id="galleryWall" class="gallery-wall"></div>
+
+  <div id="lockedCard" class="locked-card">
+    <div class="lock-icon">🔒</div>
+    <p>Locked</p>
+  </div>
+</section>
+
+<!-- ============ LOCKED CARD MODAL ============ -->
+<div id="lockModal" class="modal-overlay">
+  <div class="modal-backdrop"></div>
+  <div class="lock-modal-card">
+    <button id="lockCloseBtn" class="modal-close">✕</button>
+    <div id="lockPromptView">
+      <p class="lock-question">What was our first date?</p>
+      <input id="lockInput" type="text" placeholder="type here..." autocomplete="off">
+      <button id="lockSubmitBtn" class="btn btn-primary small">Unlock</button>
+      <p id="lockError" class="lock-error"></p>
+    </div>
+    <div id="lockNoteView" class="lock-note-view hidden">
+      <p class="note-text">
+        No pressure.<br>
+        No expectations.<br>
+        I just thought it'd be fun if we made a few more memories together —
+        and I really enjoy spending time with you. I picture us having a lot
+        more fun together going forward. 💛
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FULLSCREEN PHOTO VIEWER ============ -->
+<div id="photoViewer" class="modal-overlay">
+  <div class="modal-backdrop"></div>
+  <button id="photoCloseBtn" class="modal-close">✕</button>
+  <button id="photoPrevBtn" class="photo-nav prev">‹</button>
+  <button id="photoNextBtn" class="photo-nav next">›</button>
+  <div class="photo-viewer-inner">
+    <img id="photoViewerImg" src="" alt="memory">
+    <p id="photoViewerCaption" class="photo-viewer-caption"></p>
+  </div>
+</div>
+
+<!-- ============ SCREEN 6: FINAL / SLOT PICKER ============ -->
+<section id="screen-final" class="screen paper-bg">
+  <button id="btnCloseFinal" class="modal-close">✕</button>
+  <div class="picnic-blanket">
+    <div id="sticker3" class="sticker-static">🦫</div>
+    <div class="speech-bubble">So...</div>
+  </div>
+  <div id="slotMachine" class="slot-machine">
+    <div id="slotReel" class="slot-reel">?</div>
+  </div>
+  <button id="btnSpin" class="btn btn-primary">🎲 Pick Our Next Adventure</button>
+  <p id="slotResult" class="slot-result"></p>
+</section>
+
+<script src="Data.js"></script>
+<script src="Confetti.js"></script>
+<script src="Main.js"></script>
+</body>
+</html>
