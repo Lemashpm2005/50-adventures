@@ -15,11 +15,30 @@ function showScreen(id) {
   window.scrollTo(0, 0);
 }
 
-function playAudio(el) {
-  el.currentTime = 10;
+function playAudio(el, options = {}) {
+  const { startAt = 0, stopAfter = null, silenceOthers = false } = options;
+
+  if (silenceOthers) {
+    [$("birdAudio"), $("celebrationAudio"), $("drumrollAudio")].forEach((other) => {
+      if (other !== el) {
+        other.pause();
+        other.currentTime = 0;
+      }
+    });
+  }
+
+  el.currentTime = startAt;
   el.play().catch(() => {
     /* autoplay blocked until a user gesture happens somewhere — that's fine */
   });
+
+  clearTimeout(el._stopTimer);
+  if (stopAfter) {
+    el._stopTimer = setTimeout(() => {
+      el.pause();
+      el.currentTime = 0;
+    }, stopAfter * 1000);
+  }
 }
 
 // ============================================================
@@ -92,15 +111,32 @@ function writeJSON(key, value) {
     console.warn("Couldn't save to localStorage", e);
   }
 }
-function fileToDataURL(file) {
+async function fileToDataURL(file) {
+  let workingFile = file;
+
+  const isHeic = file.type === "image/heic" || file.type === "image/heif" ||
+                 /\.heic$/i.test(file.name) || /\.heif$/i.test(file.name);
+
+  if (isHeic) {
+    if (!window.heic2any) {
+      throw new Error("HEIC converter didn't load — check your internet connection and try again.");
+    }
+    try {
+      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+      workingFile = Array.isArray(converted) ? converted[0] : converted;
+    } catch (err) {
+      console.error("HEIC conversion failed:", err);
+      throw new Error("Couldn't convert that HEIC photo. Try re-saving it as JPG first.");
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
     reader.onerror = reject;
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(workingFile);
   });
 }
-
 // One-time migration: if photos were saved under the old
 // localStorage keys during earlier testing, move them into
 // IndexedDB so nothing gets lost, then clean up.
@@ -213,7 +249,7 @@ function handleNoClick() {
 function handleYesClick() {
   window.stopConfettiRain();
   window.burstConfetti(220);
-  playAudio($("celebrationAudio"));
+  playAudio($("celebrationAudio"), { silenceOthers: true });
   $("sticker2").style.animation = "bob 0.3s ease-in-out infinite";
   setTimeout(() => {
     buildMap();
@@ -371,15 +407,27 @@ function closeCardModal() {
 async function handleCardPhotoUpload(e) {
   const file = e.target.files[0];
   if (!file || state.currentCardDateId === null) return;
-  const dataURL = await fileToDataURL(file);
-  await saveDatePhoto(state.currentCardDateId, dataURL);
 
-  const photoWrap = $("cardBackPhoto").parentElement;
-  const img = $("cardBackPhoto");
-  photoWrap.classList.remove("img-fallback");
-  img.src = dataURL;
-  window.burstConfetti(50);
-  e.target.value = "";
+  const label = document.querySelector('label[for="cardPhotoInput"]');
+  const originalLabelText = label.textContent;
+
+  try {
+    label.textContent = "Converting...";
+    const dataURL = await fileToDataURL(file);
+    await saveDatePhoto(state.currentCardDateId, dataURL);
+
+    const photoWrap = $("cardBackPhoto").parentElement;
+    const img = $("cardBackPhoto");
+    photoWrap.classList.remove("img-fallback");
+    img.src = dataURL;
+    window.burstConfetti(50);
+  } catch (err) {
+    console.error("Card photo upload failed:", err);
+    alert(err.message);
+  } finally {
+    label.textContent = originalLabelText;
+    e.target.value = "";
+  }
 }
 
 // ============================================================
@@ -412,6 +460,7 @@ async function buildGallery() {
 async function handlePhonePhotoUpload() {
   const fileInput = $("phonePhotoUpload");
   const captionInput = $("uploadCaption");
+  const uploadBtn = $("btnSubmitUpload");
   const file = fileInput.files[0];
 
   if (!file) {
@@ -420,6 +469,9 @@ async function handlePhonePhotoUpload() {
   }
 
   try {
+    uploadBtn.textContent = "Converting...";
+    uploadBtn.disabled = true;
+
     const dataURL = await fileToDataURL(file);
     await addGalleryPhoto(dataURL, captionInput.value.trim() || "A new memory!");
 
@@ -429,7 +481,10 @@ async function handlePhonePhotoUpload() {
     await buildGallery();
   } catch (err) {
     console.error("Gallery upload failed:", err);
-    alert("Upload failed: " + err.message);
+    alert(err.message);
+  } finally {
+    uploadBtn.textContent = "Upload";
+    uploadBtn.disabled = false;
   }
 }
 
@@ -499,7 +554,7 @@ function spinSlot() {
   const reel = $("slotReel");
   reel.classList.add("spinning");
   $("slotResult").textContent = "";
-  playAudio($("drumrollAudio"));
+   playAudio($("drumrollAudio"), { silenceOthers: true });
 
   let ticks = 0;
   const maxTicks = 22;
@@ -526,7 +581,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   runOpeningSequence();
 
   $("btnTellMeMore").addEventListener("click", () => {
-    playAudio($("birdAudio"));
+    playAudio($("birdAudio"), { startAt: 10, stopAfter: 4 });
     showScreen("screen-second");
   });
 
