@@ -361,6 +361,37 @@ img { max-width: 100%; display: block; }
   border: 2px dashed var(--gold); padding: 30px 10px; text-align: center;
   border-radius: 8px; cursor: pointer; font-family: var(--font-hand);
 }
+.wall-polaroid .delete-photo-btn {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--coral);
+  color: #fff;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  z-index: 2;
+}
+.wall-polaroid .delete-photo-btn:hover { background: #d3543f; }
+
+.viewer-delete-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: var(--coral);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-family: var(--font-hand);
+  font-size: 0.9rem;
+  z-index: 3;
+}
+.viewer-delete-btn:hover { background: #d3543f; }
 .locked-card .lock-icon { font-size: 1.8rem; margin-bottom: 6px; }
 
 /* ==========================================================

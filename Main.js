@@ -1,5 +1,8 @@
 // ============================================================
 // SUPABASE SETUP
+// ===========================================================
+// ============================================================
+// SUPABASE SETUP
 // ============================================================
 const SUPABASE_URL = "https://ketjzcoglmyyvzpyoaqo.supabase.co";
 const SUPABASE_KEY = "sb_publishable_UngRT65_62wAEmivT4jkzQ_tZppliIx";
@@ -102,12 +105,12 @@ function compressImageBlob(blob, maxWidth = 1600, quality = 0.75) {
 
 async function uploadToSupabaseStorage(blob, folder) {
   const fileName = `${folder}/${Date.now()}-${Math.round(Math.random() * 1e9)}.jpg`;
-  const { data, error } = await supabaseClient.storage.from("photos").upload(fileName, blob, {
+  const { data, error } = await supabaseClient.storage.from("Photos").upload(fileName, blob, {
     contentType: "image/jpeg",
     upsert: false,
   });
   if (error) throw error;
-  const { data: urlData } = supabaseClient.storage.from("photos").getPublicUrl(data.path);
+  const { data: urlData } = supabaseClient.storage.from("Photos").getPublicUrl(data.path);
   return { path: data.path, url: urlData.publicUrl };
 }
 
@@ -144,7 +147,7 @@ async function deleteGalleryPhoto(key) {
   const { error } = await supabaseClient.from("gallery_photos").delete().eq("id", key);
   if (error) throw error;
   if (item && item.storagePath) {
-    await supabaseClient.storage.from("photos").remove([item.storagePath]);
+    await supabaseClient.storage.from("Photos").remove([item.storagePath]);
   }
 }
 
