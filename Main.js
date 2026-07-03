@@ -1,4 +1,11 @@
 // ============================================================
+// SUPABASE SETUP
+// ============================================================
+const SUPABASE_URL = "https://ketjzcoglmyyvzpyoaqo.supabase.co";
+const SUPABASE_KEY = "sb_publishable_UngRT65_62wAEmivT4jkzQ_tZppliIx";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ============================================================
 // APP STATE
 // ============================================================
 const state = {
@@ -28,9 +35,7 @@ function playAudio(el, options = {}) {
   }
 
   el.currentTime = startAt;
-  el.play().catch(() => {
-    /* autoplay blocked until a user gesture happens somewhere — that's fine */
-  });
+  el.play().catch(() => {});
 
   clearTimeout(el._stopTimer);
   if (stopAfter) {
@@ -42,60 +47,128 @@ function playAudio(el, options = {}) {
 }
 
 // ============================================================
-// STORAGE — IndexedDB for photos (localStorage is too small,
-// ~5-10MB total, photos eat that up fast). localStorage is still
-// used for tiny stuff like "liked" dates.
+// IMAGE PREP — HEIC conversion + compression, shared by both
+// the gallery wall and per-date card uploads
 // ============================================================
-const DB_NAME = "adventuresDB";
-const DB_VERSION = 1;
-let dbPromise = null;
+async function prepareImageFile(file) {
+  let workingBlob = file;
 
-function openDB() {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains("datePhotos")) {
-        db.createObjectStore("datePhotos", { keyPath: "id" });
+  const isHeic = file.type === "image/heic" || file.type === "image/heif" ||
+                 /\.heic$/i.test(file.name) || /\.heif$/i.test(file.name);
+
+  if (isHeic) {
+    if (!window.heic2any) {
+      throw new Error("HEIC converter didn't load — check your internet connection and try again.");
+    }
+    try {
+      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+      workingBlob = Array.isArray(converted) ? converted[0] : converted;
+    } catch (err) {
+      console.error("HEIC conversion failed:", err);
+      throw new Error("Couldn't convert that HEIC photo. Try re-saving it as JPG first.");
+    }
+  }
+
+  return compressImageBlob(workingBlob);
+}
+
+function compressImageBlob(blob, maxWidth = 1600, quality = 0.75) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
       }
-      if (!db.objectStoreNames.contains("gallery")) {
-        db.createObjectStore("gallery", { keyPath: "key", autoIncrement: true });
-      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      canvas.toBlob((outBlob) => {
+        URL.revokeObjectURL(url);
+        if (outBlob) resolve(outBlob);
+        else reject(new Error("Couldn't process that image."));
+      }, "image/jpeg", quality);
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Couldn't read that image file."));
+    };
+    img.src = url;
   });
-  return dbPromise;
 }
 
-function idbGet(storeName, key) {
-  return openDB().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readonly");
-    const req = tx.objectStore(storeName).get(key);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
+async function uploadToSupabaseStorage(blob, folder) {
+  const fileName = `${folder}/${Date.now()}-${Math.round(Math.random() * 1e9)}.jpg`;
+  const { data, error } = await supabaseClient.storage.from("photos").upload(fileName, blob, {
+    contentType: "image/jpeg",
+    upsert: false,
+  });
+  if (error) throw error;
+  const { data: urlData } = supabaseClient.storage.from("photos").getPublicUrl(data.path);
+  return { path: data.path, url: urlData.publicUrl };
+}
+
+// ============================================================
+// SHARED DATA — Supabase (visible to anyone with the link)
+// ============================================================
+async function loadGalleryFromDB() {
+  const { data, error } = await supabaseClient
+    .from("gallery_photos")
+    .select("*")
+    .order("created_at", { ascending: true });
+  GALLERY.length = 0;
+  if (error) {
+    console.error("Couldn't load gallery:", error);
+    return;
+  }
+  data.forEach((row) => GALLERY.push({
+    key: row.id,
+    photo: row.photo_url,
+    caption: row.caption,
+    storagePath: row.storage_path,
   }));
 }
 
-function idbPut(storeName, value) {
-  return openDB().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readwrite");
-    const req = tx.objectStore(storeName).put(value);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  }));
+async function addGalleryPhoto(photoUrl, caption, storagePath) {
+  const { error } = await supabaseClient
+    .from("gallery_photos")
+    .insert({ photo_url: photoUrl, caption, storage_path: storagePath });
+  if (error) throw error;
 }
 
-function idbGetAll(storeName) {
-  return openDB().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readonly");
-    const req = tx.objectStore(storeName).getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
-  }));
+async function deleteGalleryPhoto(key) {
+  const item = GALLERY.find((g) => g.key === key);
+  const { error } = await supabaseClient.from("gallery_photos").delete().eq("id", key);
+  if (error) throw error;
+  if (item && item.storagePath) {
+    await supabaseClient.storage.from("photos").remove([item.storagePath]);
+  }
 }
 
+async function getDatePhoto(id) {
+  const { data, error } = await supabaseClient
+    .from("date_photos")
+    .select("photo_url")
+    .eq("date_id", id)
+    .maybeSingle();
+  if (error) {
+    console.error("Couldn't load date photo:", error);
+    return null;
+  }
+  return data ? data.photo_url : null;
+}
+
+async function saveDatePhoto(id, photoUrl, storagePath) {
+  const { error } = await supabaseClient
+    .from("date_photos")
+    .upsert({ date_id: id, photo_url: photoUrl, storage_path: storagePath, updated_at: new Date().toISOString() });
+  if (error) throw error;
+}
+
+// Liked dates stay personal/local — not shared, low stakes either way
 function readJSON(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -110,68 +183,6 @@ function writeJSON(key, value) {
   } catch (e) {
     console.warn("Couldn't save to localStorage", e);
   }
-}
-async function fileToDataURL(file) {
-  let workingFile = file;
-
-  const isHeic = file.type === "image/heic" || file.type === "image/heif" ||
-                 /\.heic$/i.test(file.name) || /\.heif$/i.test(file.name);
-
-  if (isHeic) {
-    if (!window.heic2any) {
-      throw new Error("HEIC converter didn't load — check your internet connection and try again.");
-    }
-    try {
-      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
-      workingFile = Array.isArray(converted) ? converted[0] : converted;
-    } catch (err) {
-      console.error("HEIC conversion failed:", err);
-      throw new Error("Couldn't convert that HEIC photo. Try re-saving it as JPG first.");
-    }
-  }
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(workingFile);
-  });
-}
-// One-time migration: if photos were saved under the old
-// localStorage keys during earlier testing, move them into
-// IndexedDB so nothing gets lost, then clean up.
-async function migrateOldLocalStoragePhotos() {
-  const oldDatePhotos = readJSON("datePhotos", null);
-  if (oldDatePhotos) {
-    for (const id of Object.keys(oldDatePhotos)) {
-      await idbPut("datePhotos", { id: Number(id), dataURL: oldDatePhotos[id] });
-    }
-    localStorage.removeItem("datePhotos");
-  }
-  const oldGallery = readJSON("galleryPhotos", null);
-  if (oldGallery) {
-    for (const item of oldGallery) {
-      await idbPut("gallery", item);
-    }
-    localStorage.removeItem("galleryPhotos");
-  }
-}
-
-async function getDatePhoto(id) {
-  const record = await idbGet("datePhotos", id);
-  return record ? record.dataURL : null;
-}
-async function saveDatePhoto(id, dataURL) {
-  await idbPut("datePhotos", { id, dataURL });
-}
-
-async function loadGalleryFromDB() {
-  const all = await idbGetAll("gallery");
-  GALLERY.length = 0;
-  all.forEach((item) => GALLERY.push(item));
-}
-async function addGalleryPhoto(photo, caption) {
-  await idbPut("gallery", { photo, caption });
 }
 
 // ============================================================
@@ -366,7 +377,6 @@ async function openCard(id) {
   $("cardBackMemory").textContent = date.memory;
   $("cardBackTime").textContent = "🕐 " + date.time;
 
-  // Photo priority: preset photo (only Karura has one) → uploaded photo → empty fallback
   const photoWrap = $("cardBackPhoto").parentElement;
   const img = $("cardBackPhoto");
   photoWrap.classList.remove("img-fallback");
@@ -412,18 +422,19 @@ async function handleCardPhotoUpload(e) {
   const originalLabelText = label.textContent;
 
   try {
-    label.textContent = "Converting...";
-    const dataURL = await fileToDataURL(file);
-    await saveDatePhoto(state.currentCardDateId, dataURL);
+    label.textContent = "Uploading...";
+    const compressed = await prepareImageFile(file);
+    const { path, url } = await uploadToSupabaseStorage(compressed, "dates");
+    await saveDatePhoto(state.currentCardDateId, url, path);
 
     const photoWrap = $("cardBackPhoto").parentElement;
     const img = $("cardBackPhoto");
     photoWrap.classList.remove("img-fallback");
-    img.src = dataURL;
+    img.src = url;
     window.burstConfetti(50);
   } catch (err) {
     console.error("Card photo upload failed:", err);
-    alert(err.message);
+    alert(err.message || "Upload failed — check your connection and try again.");
   } finally {
     label.textContent = originalLabelText;
     e.target.value = "";
@@ -448,15 +459,24 @@ async function buildGallery() {
     card.className = "wall-polaroid";
     card.style.transform = `rotate(${(i % 2 === 0 ? -1 : 1) * (4 + (i % 3) * 2)}deg)`;
     card.innerHTML = `
+      <button class="delete-photo-btn" title="Delete this photo">✕</button>
       <div class="tape"></div>
       <img src="${item.photo}" alt="memory" onerror="this.parentElement.classList.add('img-fallback')">
       <span class="fallback-emoji">💛</span>
       <p class="wall-caption">${item.caption}</p>
     `;
     card.addEventListener("click", () => openPhotoViewer(i));
+    card.querySelector(".delete-photo-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (confirm("Delete this photo? This can't be undone.")) {
+        await deleteGalleryPhoto(item.key);
+        buildGallery();
+      }
+    });
     wall.appendChild(card);
   });
 }
+
 async function handlePhonePhotoUpload() {
   const fileInput = $("phonePhotoUpload");
   const captionInput = $("uploadCaption");
@@ -469,11 +489,12 @@ async function handlePhonePhotoUpload() {
   }
 
   try {
-    uploadBtn.textContent = "Converting...";
+    uploadBtn.textContent = "Uploading...";
     uploadBtn.disabled = true;
 
-    const dataURL = await fileToDataURL(file);
-    await addGalleryPhoto(dataURL, captionInput.value.trim() || "A new memory!");
+    const compressed = await prepareImageFile(file);
+    const { path, url } = await uploadToSupabaseStorage(compressed, "gallery");
+    await addGalleryPhoto(url, captionInput.value.trim() || "A new memory!", path);
 
     fileInput.value = "";
     captionInput.value = "";
@@ -481,7 +502,7 @@ async function handlePhonePhotoUpload() {
     await buildGallery();
   } catch (err) {
     console.error("Gallery upload failed:", err);
-    alert(err.message);
+    alert(err.message || "Upload failed — check your connection and try again.");
   } finally {
     uploadBtn.textContent = "Upload";
     uploadBtn.disabled = false;
@@ -554,7 +575,7 @@ function spinSlot() {
   const reel = $("slotReel");
   reel.classList.add("spinning");
   $("slotResult").textContent = "";
-   playAudio($("drumrollAudio"), { silenceOthers: true });
+  playAudio($("drumrollAudio"), { silenceOthers: true });
 
   let ticks = 0;
   const maxTicks = 22;
@@ -576,8 +597,7 @@ function spinSlot() {
 // ============================================================
 // WIRE UP EVENTS
 // ============================================================
-window.addEventListener("DOMContentLoaded", async () => {
-  await migrateOldLocalStoragePhotos();
+window.addEventListener("DOMContentLoaded", () => {
   runOpeningSequence();
 
   $("btnTellMeMore").addEventListener("click", () => {
@@ -603,7 +623,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btnCloseFinal").addEventListener("click", () => showScreen("screen-welcome"));
   $("btnSpin").addEventListener("click", spinSlot);
 
-  // Flip card modal
   $("flipCard").querySelector(".flip-card-front").addEventListener("click", () => {
     $("flipCard").classList.add("flipped");
   });
@@ -611,16 +630,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("cardModal").querySelector(".modal-backdrop").addEventListener("click", closeCardModal);
   $("cardPhotoInput").addEventListener("change", handleCardPhotoUpload);
 
-  // Locked card
   $("lockedCard").addEventListener("click", openLockModal);
   $("lockCloseBtn").addEventListener("click", closeLockModal);
   $("lockModal").querySelector(".modal-backdrop").addEventListener("click", closeLockModal);
   $("lockSubmitBtn").addEventListener("click", tryUnlock);
   $("lockInput").addEventListener("keydown", (e) => { if (e.key === "Enter") tryUnlock(); });
 
-  // Photo viewer
   $("photoCloseBtn").addEventListener("click", closePhotoViewer);
   $("photoViewer").querySelector(".modal-backdrop").addEventListener("click", closePhotoViewer);
   $("photoPrevBtn").addEventListener("click", () => shiftPhoto(-1));
   $("photoNextBtn").addEventListener("click", () => shiftPhoto(1));
+  $("photoDeleteBtn").addEventListener("click", async () => {
+    if (!GALLERY.length) return;
+    const item = GALLERY[state.currentGalleryIndex];
+    if (confirm("Delete this photo? This can't be undone.")) {
+      await deleteGalleryPhoto(item.key);
+      closePhotoViewer();
+      buildGallery();
+    }
+  });
 });
