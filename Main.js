@@ -144,7 +144,7 @@ async function addGalleryPhoto(photoUrl, caption, storagePath) {
 
 async function deleteGalleryPhoto(key) {
   const item = GALLERY.find((g) => g.key === key);
-  const { error } = await supabaseClient.from("gallery_photos").delete().eq("id", key);
+  const { error } = await supabaseClient.from("gallery_Photos").delete().eq("id", key);
   if (error) throw error;
   if (item && item.storagePath) {
     await supabaseClient.storage.from("Photos").remove([item.storagePath]);
